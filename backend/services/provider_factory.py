@@ -5,6 +5,7 @@ import os
 from .providers.base import GeocodingProvider, RoutingProvider, WeatherProvider
 from .providers.nominatim import NominatimProvider
 from .providers.openroute import OpenRouteProvider
+from .providers.osrm import OsrmProvider
 from .providers.weather import OpenMeteoProvider
 
 
@@ -18,7 +19,9 @@ def get_geocoding_provider() -> GeocodingProvider:
 
 def get_routing_provider() -> RoutingProvider:
     """Create the configured routing provider."""
-    provider_name = os.getenv('ROUTING_PROVIDER', 'ors').lower()
+    provider_name = os.getenv('ROUTING_PROVIDER', 'osrm').lower()
+    if provider_name == 'osrm':
+        return OsrmProvider()
     if provider_name in {'ors', 'openrouteservice'}:
         return OpenRouteProvider()
     raise ValueError(f'Unsupported routing provider: {provider_name}')

@@ -14,9 +14,9 @@ This project uses:
 - Frontend: https://weather-aware-truck-routing-seven.vercel.app/
 - Backend API: https://weather-aware-truck-routing-api-3sba.onrender.com/
 
-The frontend's production build must have `VITE_API_BASE_URL` set to the backend base URL above (without `/api`). The backend requires a valid `ORS_API_KEY` to produce road routes; it returns a clear provider error instead of presenting generated fallback geometry as analyzed routes.
+The frontend's production build must have `VITE_API_BASE_URL` set to the backend base URL above (without `/api`). The backend uses the public OSRM driving router by default, so a routing API key is not required. OpenRouteService remains available as an optional provider when an `ORS_API_KEY` is configured.
 
-**Deployment verification:** The hosted frontend and backend health endpoint are reachable, and the API CORS preflight allows the Vercel origin. However, a live `/api/analyze/` smoke test returned `fallback-route-*` entries without scored route metrics. The deployed backend therefore does not currently meet the end-to-end analysis requirement. Do not present that response as analyzed routing; confirm the Render environment and redeploy the current backend before submission. The current workspace implementation fails explicitly when a required routing provider is unavailable.
+**Deployment verification:** The Render service was pinned to the first repository commit, which served unscored fallback routes. The current backend now uses the no-key OSRM router by default; a live local end-to-end check returned three routes with weather, risk metrics, and a recommendation. The deployed backend must be redeployed from the latest `main` commit before production analysis uses this provider. Do not treat provider errors or unscored routes as analyzed results.
 
 ## Architecture
 ```mermaid
@@ -52,7 +52,7 @@ flowchart LR
 ```
 
 ## Assumptions
-- OpenStreetMap/Nominatim is used for geocoding and OpenRouteService is used for driving routes.
+- OpenStreetMap/Nominatim is used for geocoding. OSRM is the default driving router; OpenRouteService is an optional keyed alternative.
 - Route ETAs are interpolated proportionally by distance because the route provider response supplies total duration rather than per-step arrival times.
 - Weather forecast sampling uses Open-Meteo hourly forecasts and selects the nearest forecast hour to each ETA (not interpolation).
 - The app uses UTC internally and converts to local time only in the UI presentation layer.
@@ -91,7 +91,7 @@ For local frontend development, copy the frontend example:
 Copy-Item frontend\.env.example frontend\.env.local
 # macOS/Linux: cp frontend/.env.example frontend/.env.local
 ```
-Set a private `SECRET_KEY`; add an OpenRouteService key to `ORS_API_KEY` to retrieve real driving routes.
+Set a private `SECRET_KEY`. The default OSRM router needs no API key. To use OpenRouteService instead, set `ROUTING_PROVIDER=ors` and provide a valid `ORS_API_KEY`.
 
 ### 4) Run the backend
 ```bash
@@ -131,13 +131,13 @@ The backend reads the root `.env` via `python-dotenv`. Vite reads `frontend/.env
 | `CORS_ALLOWED_ORIGINS` | Backend | No | Comma-separated browser origins allowed to call the API. |
 | `FRONTEND_URL` | Backend | No | Fallback frontend origin used for CSRF trusted origins. |
 | `GEOCODING_PROVIDER` | Backend | No | Provider selector; supported value is `nominatim`. |
-| `ROUTING_PROVIDER` | Backend | No | Provider selector; supported value is `ors`. |
+| `ROUTING_PROVIDER` | Backend | No | Provider selector; supported values are `osrm` (default) and `ors`. |
 | `WEATHER_PROVIDER` | Backend | No | Provider selector; supported value is `open-meteo`. |
-| `ORS_API_KEY` | Backend | Yes for analysis | Secret key for OpenRouteService road routing. |
+| `ORS_API_KEY` | Backend | Only with `ROUTING_PROVIDER=ors` | Secret key for OpenRouteService road routing. |
 | `PORT` | Backend host | Host supplied | Listening port; Render supplies it automatically. |
 | `VITE_API_BASE_URL` | Frontend | Yes for deployment | Backend base URL, without a trailing `/api`. |
 
-Nominatim and Open-Meteo do not require API keys. `VITE_API_BASE_URL` belongs in `frontend/.env.local` locally and in Vercel project environment variables in production. `.env.example` and `frontend/.env.example` list all supported deployment settings; do not copy production secrets into either example.
+Nominatim, OSRM, and Open-Meteo do not require API keys. `VITE_API_BASE_URL` belongs in `frontend/.env.local` locally and in Vercel project environment variables in production. `.env.example` and `frontend/.env.example` list supported deployment settings; do not copy production secrets into either example.
 
 ## API endpoints
 ### GET /api/geocode?q=...
@@ -162,7 +162,7 @@ Representative route object from a successful response (`routes` contains exactl
   "geometry": [[41.88, -87.63], [39.74, -104.99]],
   "total_distance_miles": 1005.2,
   "total_duration_seconds": 55800,
-  "summary": "OpenRouteService driving route",
+  "summary": "OSRM driving route",
   "recommended": true,
   "recommendation_explanation": "route-1 wins because it has the lowest no-travel miles...",
   "checkpoints": [
@@ -300,7 +300,7 @@ Replace these placeholders with screenshots before submission:
 3. Connect the repository.
 4. Set the root directory to `backend` or use the root service with `render.yaml`.
 5. Use the included `render.yaml` as a deployment blueprint.
-6. Set the backend environment variables listed in the live deployment configuration below. `ORS_API_KEY` must be a valid OpenRouteService key; set it in Render's Environment page because it is intentionally not committed.
+6. Set the backend environment variables listed in the live deployment configuration below. The default OSRM router does not need a key. If using OpenRouteService, add its key as the secret `ORS_API_KEY` in Render.
 7. Deploy. Render will run the backend with gunicorn.
 
 ### Frontend on Vercel
@@ -326,9 +326,8 @@ Set these values on the Render backend, then redeploy:
 | `CORS_ALLOWED_ORIGINS` | `https://weather-aware-truck-routing-seven.vercel.app` |
 | `FRONTEND_URL` | `https://weather-aware-truck-routing-seven.vercel.app` |
 | `GEOCODING_PROVIDER` | `nominatim` |
-| `ROUTING_PROVIDER` | `ors` |
+| `ROUTING_PROVIDER` | `osrm` |
 | `WEATHER_PROVIDER` | `open-meteo` |
-| `ORS_API_KEY` | A valid OpenRouteService key (secret; required for real routes) |
 
 Render supplies `PORT` automatically. Set this Vercel Production environment variable and redeploy the frontend:
 
@@ -336,7 +335,7 @@ Render supplies `PORT` automatically. Set this Vercel Production environment var
 |---|---|
 | `VITE_API_BASE_URL` | `https://weather-aware-truck-routing-api-3sba.onrender.com` |
 
-The current Render CORS preflight was verified to allow the deployed Vercel origin. The current live frontend was also observed sending analysis requests to the production Render API. The values in `render.yaml` now match those hosts; host-side secrets and environment values still need to be confirmed in the Render dashboard.
+The Render CORS preflight allows the deployed Vercel origin. The Render service has been manually deployed from the current `main` commit; verify real route analysis after deployment. The values in `render.yaml` match the production hosts.
 
 ## Loom walkthrough outline
 1. Start with a 20-second overview: truck route comparison, weather risk, and recommended path.
@@ -389,4 +388,4 @@ Write-Output "Recommended route id: $($result.recommended_route_id)"
 ## Notes for reviewer
 - The backend includes service-layer testing for risk thresholds, recommendation ordering, and checkpoint generation.
 - The frontend compiles to a production build and includes the route dashboard, checkpoint details, and heatmap slider.
-- Production config uses environment-based secrets and CORS configuration rather than hard-coded credentials. Never commit `.env`, `frontend/.env.local`, or the OpenRouteService key.
+- Production config uses environment-based secrets and restricted CORS rather than hard-coded credentials. Never commit `.env`, `frontend/.env.local`, or an OpenRouteService key.

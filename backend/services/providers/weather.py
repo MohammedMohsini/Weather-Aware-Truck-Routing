@@ -21,6 +21,7 @@ class OpenMeteoProvider(WeatherProvider):
             start_dt = start_dt.replace(tzinfo=timezone.utc)
         start_dt = start_dt.astimezone(timezone.utc)
         end_dt = start_dt + timedelta(hours=hours)
+        earliest_sample = start_dt - timedelta(hours=1)
         end_date = end_dt.date()
         params = {
             'latitude': ','.join(str(lat) for lat, _ in coordinates),
@@ -80,7 +81,7 @@ class OpenMeteoProvider(WeatherProvider):
                 if sample_dt.tzinfo is None:
                     sample_dt = sample_dt.replace(tzinfo=timezone.utc)
                 sample_dt = sample_dt.astimezone(timezone.utc)
-                if sample_dt < start_dt or sample_dt > end_dt:
+                if sample_dt < earliest_sample or sample_dt > end_dt:
                     continue
                 values = (winds[hour_idx], rain[hour_idx], snow[hour_idx])
                 if any(value is None for value in values):

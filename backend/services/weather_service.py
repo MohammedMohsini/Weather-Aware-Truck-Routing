@@ -80,9 +80,7 @@ def weather_for_checkpoint(
         return None
 
     target = eta_utc.astimezone(timezone.utc)
-    first_time = min(parse_iso_utc(item.timestamp) for item in matching_location)
-    last_time = max(parse_iso_utc(item.timestamp) for item in matching_location)
-    if target < first_time or target > last_time:
-        return None
     nearest = min(matching_location, key=lambda item: abs(parse_iso_utc(item.timestamp) - target))
+    if abs(parse_iso_utc(nearest.timestamp) - target).total_seconds() > 30 * 60:
+        return None
     return nearest

@@ -2,6 +2,7 @@ import { CircleMarker, MapContainer, Polyline, Popup, TileLayer, useMap } from '
 import type { LatLngBoundsExpression } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
+import { HeatmapLayer, type HeatmapPoint } from './HeatmapLayer';
 import type { Checkpoint, RouteSummary, RiskLevel } from '../types/route';
 
 const routeColors = ['#3b82f6', '#22c55e', '#f97316'];
@@ -38,11 +39,20 @@ function FitMapBounds({ routes }: { routes: RouteSummary[] }) {
 type RouteMapProps = {
   routes: RouteSummary[];
   selectedRouteId: string;
+  heatmapPoints: HeatmapPoint[];
+  heatmapHour: number;
   onRouteSelect: (routeId: string) => void;
   onCheckpointSelect: (checkpoint: Checkpoint) => void;
 };
 
-export function RouteMap({ routes, selectedRouteId, onRouteSelect, onCheckpointSelect }: RouteMapProps) {
+export function RouteMap({
+  routes,
+  selectedRouteId,
+  heatmapPoints,
+  heatmapHour,
+  onRouteSelect,
+  onCheckpointSelect,
+}: RouteMapProps) {
   return (
     <div className="map-shell">
       <MapContainer center={[39.5, -96.3]} zoom={4} scrollWheelZoom className="map-container">
@@ -51,6 +61,7 @@ export function RouteMap({ routes, selectedRouteId, onRouteSelect, onCheckpointS
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
         <FitMapBounds routes={routes} />
+        <HeatmapLayer points={heatmapPoints} hour={heatmapHour} />
 
         {routes.map((route, index) => {
           const isSelected = selectedRouteId === route.route_id;

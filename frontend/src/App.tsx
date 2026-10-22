@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import { analyzeRoutes } from './api/client';
-import { HeatmapLayer, type HeatmapPoint } from './components/HeatmapLayer';
+import type { HeatmapPoint } from './components/HeatmapLayer';
 import { HeatmapSlider } from './components/HeatmapSlider';
 import { RouteForm } from './components/RouteForm';
 import { RouteMap } from './components/RouteMap';
@@ -231,6 +231,8 @@ function App() {
           <RouteMap
             routes={routes}
             selectedRouteId={selectedRouteId}
+            heatmapPoints={heatmapPoints}
+            heatmapHour={heatmapHour}
             onRouteSelect={setSelectedRouteId}
             onCheckpointSelect={setSelectedCheckpoint}
           />
@@ -302,9 +304,6 @@ function App() {
               <span>High</span>
               <span>Severe</span>
               <span>No Travel</span>
-            </div>
-            <div className="heatmap-overlay">
-              <HeatmapLayer points={heatmapPoints} hour={heatmapHour} />
             </div>
           </div>
         </section>

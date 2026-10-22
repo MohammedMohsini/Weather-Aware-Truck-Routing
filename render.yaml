@@ -2,10 +2,13 @@ services:
   - type: web
     name: weather-aware-truck-routing-api
     env: python
+    branch: main
+    autoDeploy: true
     rootDir: backend
     plan: free
     buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput
     startCommand: gunicorn config.wsgi --bind 0.0.0.0:$PORT --workers 3
+    healthCheckPath: /api/health/
     envVars:
       - key: PYTHON_VERSION
         value: '3.11'

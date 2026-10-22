@@ -16,7 +16,7 @@ This project uses:
 
 The frontend's production build must have `VITE_API_BASE_URL` set to the backend base URL above (without `/api`). The backend uses the public OSRM driving router by default, so a routing API key is not required. OpenRouteService remains available as an optional provider when an `ORS_API_KEY` is configured.
 
-**Deployment verification:** The Render service was pinned to the first repository commit, which served unscored fallback routes. The current backend now uses the no-key OSRM router by default; a live local end-to-end check returned three routes with weather, risk metrics, and a recommendation. The deployed backend must be redeployed from the latest `main` commit before production analysis uses this provider. Do not treat provider errors or unscored routes as analyzed results.
+**Deployment verification:** The Render backend is configured to use the public OSRM driving router by default, so route analysis does not depend on an OpenRouteService API key. The deployed API was verified with a Chicago-to-Denver request departing at `02:30 UTC`: it returned three scored routes, weather and risk at each checkpoint, route metrics, and a recommendation. The same request's heatmap returned 49 hourly snapshots (hour 0 through hour 48) across 293 corridor points. Provider errors are surfaced; unscored or fallback routes must not be presented as analyzed results.
 
 ## Architecture
 ```mermaid

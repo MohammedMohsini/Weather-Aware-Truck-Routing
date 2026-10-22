@@ -231,6 +231,16 @@ function parseRoutes(payload: unknown): RouteSummary[] {
   if (!isRecord(payload) || !Array.isArray(payload.routes) || payload.routes.length !== 3) {
     throw new Error('The analysis service did not return exactly three analyzed routes.');
   }
+  if (
+    payload.routes.some(
+      (route) =>
+        isRecord(route) && typeof route.route_id === 'string' && route.route_id.startsWith('fallback-route-'),
+    )
+  ) {
+    throw new Error(
+      'The backend is returning unscored fallback routes. Deploy the latest backend and verify its ORS_API_KEY; these routes cannot be safely analyzed.',
+    );
+  }
   const routes = payload.routes.map(parseRoute);
   if (
     routes.filter((route) => route.recommended).length !== 1 ||

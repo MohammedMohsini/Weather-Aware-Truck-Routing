@@ -34,16 +34,24 @@ class WeatherPoint:
     snow_in_hr: float
 
 
-class BaseProvider(ABC):
-    """Abstract base for external service provider integrations."""
+class GeocodingProvider(ABC):
+    """Provider interface for address-to-coordinate lookups."""
 
     @abstractmethod
     def geocode(self, query: str) -> list[GeocodeResult]:
         """Resolve a user query to one or more geocoded coordinates."""
 
+
+class RoutingProvider(ABC):
+    """Provider interface for driving routes."""
+
     @abstractmethod
     def route(self, origin: tuple[float, float], destination: tuple[float, float], *, alternatives: bool = True) -> list[RouteResult]:
         """Fetch one or more route alternatives between two coordinates."""
+
+
+class WeatherProvider(ABC):
+    """Provider interface for batched hourly weather forecasts."""
 
     @abstractmethod
     def weather(self, coordinates: list[tuple[float, float]], *, time_start: str, hours: int) -> list[WeatherPoint]:
@@ -53,7 +61,13 @@ class BaseProvider(ABC):
 class ProviderError(RuntimeError):
     """Raised when a remote provider rejects or fails a request."""
 
-    def __init__(self, message: str, *, status_code: int | None = None, details: dict[str, Any] | None = None):
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.details = details or {}

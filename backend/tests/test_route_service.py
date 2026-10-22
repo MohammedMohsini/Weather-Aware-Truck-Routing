@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 from services.route_service import (
     build_checkpoints,
     calculate_eta_for_distance,
-    decode_polyline,
     haversine_miles,
     route_distance_miles,
 )
@@ -18,17 +17,24 @@ def test_haversine_distance_is_reasonable():
     assert 2200 < distance < 2800
 
 
-def test_decode_polyline_returns_points():
-    encoded = '_p~iF~ps|U_ulLnnqC_mqNvxq`@'
-    points = decode_polyline(encoded)
-    assert len(points) > 0
-    assert isinstance(points[0], tuple)
-
-
 def test_calculate_eta_for_distance_uses_proportional_timing():
     departure = '2025-01-01T12:00:00Z'
     eta = calculate_eta_for_distance(departure, 3600, 1800, 3600)
     assert eta == datetime(2025, 1, 1, 12, 30, tzinfo=timezone.utc)
+
+
+def test_checkpoint_etas_increase_along_route():
+    route = [(0.0, 0.0), (0.0, 3.0)]
+    checkpoints = build_checkpoints(
+        route,
+        interval_miles=25,
+        departure_time='2025-01-01T12:00:00Z',
+        total_duration_seconds=6 * 60 * 60,
+    )
+
+    etas = [checkpoint.eta_utc for checkpoint in checkpoints]
+    assert all(eta is not None for eta in etas)
+    assert all(later > earlier for earlier, later in zip(etas, etas[1:]))
 
 
 def test_build_checkpoints_includes_endpoints_and_interval_points():
@@ -38,6 +44,24 @@ def test_build_checkpoints_includes_endpoints_and_interval_points():
     assert checkpoints[-1].latitude == route[-1][0]
     assert checkpoints[-1].longitude == route[-1][1]
     assert len(checkpoints) >= 2
+
+
+def test_checkpoint_generation_respects_supported_intervals_and_endpoints():
+    route = [(0.0, 0.0), (0.0, 3.0)]
+    for interval in (10, 25, 50):
+        checkpoints = build_checkpoints(
+            route,
+            interval_miles=interval,
+            departure_time='2025-01-01T00:00:00Z',
+            total_duration_seconds=3600,
+        )
+        distances = [checkpoint.distance_from_start_miles for checkpoint in checkpoints]
+
+        assert distances[0] == 0
+        assert (checkpoints[-1].latitude, checkpoints[-1].longitude) == route[-1]
+        assert distances[-1] > 0
+        assert all(abs(distance / interval - round(distance / interval)) < 1e-8 for distance in distances[1:-1])
+        assert abs(sum(checkpoint.segment_length_miles for checkpoint in checkpoints) - distances[-1]) < 1e-8
 
 
 def test_route_distance_miles_sums_segments():

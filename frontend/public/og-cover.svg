@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#f4f7fb"/>
+  <rect x="68" y="68" width="1064" height="494" rx="34" fill="#fff"/>
+  <rect x="112" y="112" width="82" height="82" rx="24" fill="#176b57"/>
+  <path d="M128 161h13l10-23 14 34 11-22h13" fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round" stroke-width="6"/>
+  <text x="112" y="270" fill="#18212f" font-family="Inter,Arial,sans-serif" font-size="56" font-weight="700">Weather-Aware</text>
+  <text x="112" y="338" fill="#18212f" font-family="Inter,Arial,sans-serif" font-size="56" font-weight="700">Truck Routing</text>
+  <text x="114" y="400" fill="#526174" font-family="Inter,Arial,sans-serif" font-size="26">Compare routes with weather and load-aware risk.</text>
+  <path d="M716 430c55-138 154 42 218-94s107 10 165-106" fill="none" stroke="#176b57" stroke-linecap="round" stroke-width="12"/>
+  <circle cx="716" cy="430" r="14" fill="#176b57"/>
+  <circle cx="1099" cy="230" r="14" fill="#283b53"/>
+</svg>

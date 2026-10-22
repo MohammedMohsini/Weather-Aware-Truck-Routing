@@ -21,7 +21,7 @@ export type RouteMetrics = {
   severe_miles: number;
   high_miles: number;
   average_risk: number;
-  miles_by_level: Record<string, number>;
+  miles_by_level: Record<RiskLevel, number>;
 };
 
 export type RouteSummary = {
@@ -31,6 +31,7 @@ export type RouteSummary = {
   total_duration_seconds: number;
   summary: string;
   recommended: boolean;
+  recommendation_explanation?: string | null;
   checkpoints: Checkpoint[];
   metrics?: RouteMetrics;
 };

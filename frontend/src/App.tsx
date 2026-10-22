@@ -1,313 +1,376 @@
-import { useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { analyzeRoutes } from './api/client';
+import { analyzeRoutes, loadHeatmap, pingApi, type HeatmapPayload, type HeatmapResponse } from './api/client';
 import type { HeatmapPoint } from './components/HeatmapLayer';
+import { CheckpointList } from './components/CheckpointList';
 import { HeatmapSlider } from './components/HeatmapSlider';
 import { RouteForm } from './components/RouteForm';
-import { RouteMap } from './components/RouteMap';
 import { RouteSummaryCard } from './components/RouteSummaryCard';
+import type { HoveredCheckpoint } from './components/RouteMap';
+import { setSelectedHeatmapHour } from './stores/heatmapHour';
 import type { Checkpoint, RouteSummary } from './types/route';
 import './App.css';
 
-const now = new Date(Date.now() + 60 * 60 * 1000);
-const defaultForm = {
-  origin: 'New York, NY',
-  destination: 'Chicago, IL',
-  departure_time: now.toISOString().slice(0, 16),
+const RouteMap = lazy(() => import('./components/RouteMap').then((module) => ({ default: module.RouteMap })));
+
+const toLocalDateTimeInput = (date: Date): string => {
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return localDate.toISOString().slice(0, 16);
+};
+
+const initialForm = {
+  origin: '',
+  destination: '',
+  departure_time: toLocalDateTimeInput(new Date(Date.now() + 60 * 60 * 1000)),
   load_lb: 28000,
   interval_miles: 25,
 };
 
-const routeOneGeometry = [
-  [40.7128, -74.006],
-  [40.92, -75.75],
-  [41.14, -77.37],
-  [41.6, -80.4],
-  [41.88, -87.63],
-] as [number, number][];
+type ServerState = 'checking' | 'ready' | 'waking';
 
-const routeTwoGeometry = [
-  [40.7128, -74.006],
-  [40.5, -76.2],
-  [40.68, -79.8],
-  [41.1, -82.8],
-  [41.34, -85.6],
-  [41.88, -87.63],
-] as [number, number][];
-
-const routeThreeGeometry = [
-  [40.7128, -74.006],
-  [39.95, -77.4],
-  [40.05, -81.2],
-  [41.15, -84.8],
-  [41.88, -87.63],
-] as [number, number][];
-
-const makeCheckpoints = (geometry: [number, number][]): Checkpoint[] => {
-  const values = [
-    { index: 0, distance: 0, eta: '2026-10-21T14:00:00Z', risk: 'Low', wind_mph: 18, rain_in_hr: 0.03, snow_in_hr: 0.0, reason: 'Minimal weather exposure.' },
-    { index: 1, distance: 180, eta: '2026-10-21T16:40:00Z', risk: 'Moderate', wind_mph: 29, rain_in_hr: 0.18, snow_in_hr: 0.0, reason: 'Wind and light rain are within moderate thresholds.' },
-    { index: 2, distance: 380, eta: '2026-10-21T19:10:00Z', risk: 'High', wind_mph: 39, rain_in_hr: 0.32, snow_in_hr: 0.0, reason: 'Crosswinds and rain raise the risk to High.' },
-    { index: 3, distance: 560, eta: '2026-10-21T21:20:00Z', risk: 'Severe', wind_mph: 47, rain_in_hr: 0.42, snow_in_hr: 0.0, reason: 'Wind meets the severe threshold for this load.' },
-    { index: 4, distance: 680, eta: '2026-10-21T23:50:00Z', risk: 'Low', wind_mph: 20, rain_in_hr: 0.05, snow_in_hr: 0.0, reason: 'Conditions stabilize on the final segment.' },
-  ];
-
-  return values.map((value, idx) => {
-    const point = geometry[Math.min(idx, geometry.length - 1)];
-    return {
-      index: value.index,
-      latitude: point[0],
-      longitude: point[1],
-      distance_from_start_miles: value.distance,
-      segment_length_miles: idx === 0 ? 0 : 180,
-      eta_utc: value.eta,
-      risk: value.risk as Checkpoint['risk'],
-      reason: value.reason,
-      wind_mph: value.wind_mph,
-      rain_in_hr: value.rain_in_hr,
-      snow_in_hr: value.snow_in_hr,
-    };
-  });
-};
-
-const buildDemoRoutes = (): RouteSummary[] => [
-  {
-    route_id: 'route-1',
-    geometry: routeOneGeometry,
-    total_distance_miles: 730,
-    total_duration_seconds: 17520,
-    summary: 'I-80 corridor with higher wind exposure near the Great Lakes.',
-    recommended: true,
-    checkpoints: makeCheckpoints(routeOneGeometry),
-    metrics: {
-      no_travel_miles: 0,
-      severe_miles: 20,
-      high_miles: 80,
-      average_risk: 2.3,
-      miles_by_level: { Low: 400, Moderate: 180, High: 80, Severe: 20, 'No Travel': 0 },
-    },
-  },
-  {
-    route_id: 'route-2',
-    geometry: routeTwoGeometry,
-    total_distance_miles: 760,
-    total_duration_seconds: 18180,
-    summary: 'Midwest route with slightly longer travel time but milder weather.',
-    recommended: false,
-    checkpoints: makeCheckpoints(routeTwoGeometry),
-    metrics: {
-      no_travel_miles: 0,
-      severe_miles: 40,
-      high_miles: 120,
-      average_risk: 2.5,
-      miles_by_level: { Low: 430, Moderate: 180, High: 100, Severe: 40, 'No Travel': 0 },
-    },
-  },
-  {
-    route_id: 'route-3',
-    geometry: routeThreeGeometry,
-    total_distance_miles: 790,
-    total_duration_seconds: 18720,
-    summary: 'Southern detour with the lowest average risk but longer duration.',
-    recommended: false,
-    checkpoints: makeCheckpoints(routeThreeGeometry),
-    metrics: {
-      no_travel_miles: 0,
-      severe_miles: 10,
-      high_miles: 60,
-      average_risk: 2.2,
-      miles_by_level: { Low: 470, Moderate: 180, High: 80, Severe: 10, 'No Travel': 0 },
-    },
-  },
-];
-
-const buildHeatmapPoints = (routes: RouteSummary[]): HeatmapPoint[] => {
-  const points: HeatmapPoint[] = [];
-
-  routes.forEach((route) => {
-    const geometry = route.geometry;
-    for (let index = 0; index < geometry.length - 1; index += 1) {
-      const [lat1, lng1] = geometry[index];
-      const [lat2, lng2] = geometry[index + 1];
-      const segments = 6;
-
-      for (let segmentIndex = 0; segmentIndex <= segments; segmentIndex += 1) {
-        const t = segmentIndex / segments;
-        const lat = lat1 + (lat2 - lat1) * t;
-        const lng = lng1 + (lng2 - lng1) * t;
-        const risk = ((Math.sin((lat + lng) * 14 + index) + Math.cos((lat - lng) * 17 + route.total_distance_miles / 200)) + 2) / 4;
-
-        points.push({
-          lat,
-          lng,
-          risk: Math.max(0, Math.min(4, risk * 4 + (route.recommended ? 0.5 : 0.25))),
-        });
-      }
-    }
-  });
-
-  return points;
-};
+function userFacingError(error: unknown): string {
+  const message = error instanceof Error ? error.message : 'Route analysis failed. Please try again.';
+  const normalized = message.toLowerCase();
+  if (normalized.includes('geocod')) {
+    return `Location lookup failed. Check the origin and destination, then try again. ${message}`;
+  }
+  if (normalized.includes('forecast') || normalized.includes('weather data')) {
+    return `Departure time is outside the available forecast window, or forecast coverage is incomplete. Choose a departure time within the forecast range. ${message}`;
+  }
+  if (
+    normalized.includes('provider') ||
+    normalized.includes('routing is unavailable') ||
+    normalized.includes('openrouteservice')
+  ) {
+    return `A routing or weather provider is unavailable. Please try again later. ${message}`;
+  }
+  if (normalized.includes('failed to fetch') || normalized.includes('networkerror')) {
+    return 'The server may be waking up or temporarily unavailable. Wait a moment and retry.';
+  }
+  return message;
+}
 
 function App() {
-  const [form, setForm] = useState(defaultForm);
-  const [routes, setRoutes] = useState<RouteSummary[]>(() => buildDemoRoutes());
-  const [selectedRouteId, setSelectedRouteId] = useState('route-1');
+  const [form, setForm] = useState(initialForm);
+  const [routes, setRoutes] = useState<RouteSummary[]>([]);
+  const [selectedRouteId, setSelectedRouteId] = useState('');
   const [selectedCheckpoint, setSelectedCheckpoint] = useState<Checkpoint | null>(null);
+  const [hoveredCheckpoint, setHoveredCheckpoint] = useState<HoveredCheckpoint>(null);
   const [loading, setLoading] = useState(false);
+  const [progressMessage, setProgressMessage] = useState('');
+  const [heatmapLoading, setHeatmapLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [heatmapHour, setHeatmapHour] = useState(12);
-  const [playing, setPlaying] = useState(false);
+  const [heatmapError, setHeatmapError] = useState<string | null>(null);
+  const [heatmapPayload, setHeatmapPayload] = useState<HeatmapPayload | null>(null);
+  const [heatmapData, setHeatmapData] = useState<HeatmapResponse | null>(null);
+  const [serverState, setServerState] = useState<ServerState>('checking');
+  const heatmapRequestId = useRef(0);
 
-  const heatmapPoints = useMemo(() => buildHeatmapPoints(routes), [routes]);
   const selectedRoute = routes.find((route) => route.route_id === selectedRouteId) ?? routes[0];
-
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const heatmapPoints = useMemo<HeatmapPoint[]>(
+    () =>
+      heatmapData?.points.map((point) => ({
+        lat: point.latitude,
+        lng: point.longitude,
+        hourlyRiskLevels: point.hourly.map((sample) => sample.risk_level),
+      })) ?? [],
+    [heatmapData],
+  );
   useEffect(() => {
-    if (!playing) {
-      return;
+    const wakeTimer = window.setTimeout(() => {
+      setServerState((current) => (current === 'ready' ? current : 'waking'));
+    }, 1800);
+    void pingApi()
+      .then(() => setServerState('ready'))
+      .catch(() => setServerState('waking'))
+      .finally(() => window.clearTimeout(wakeTimer));
+    return () => window.clearTimeout(wakeTimer);
+  }, []);
+
+  const updateField = useCallback((field: keyof typeof initialForm, value: string | number) => {
+    setForm((current) => ({ ...current, [field]: value }));
+  }, []);
+
+  const requestHeatmap = useCallback(async (payload: HeatmapPayload) => {
+    const requestId = ++heatmapRequestId.current;
+    setHeatmapPayload(payload);
+    setHeatmapData(null);
+    setHeatmapError(null);
+    setHeatmapLoading(true);
+    try {
+      const data = await loadHeatmap(payload);
+      if (requestId === heatmapRequestId.current) {
+        setHeatmapData(data);
+      }
+    } catch (heatmapLoadError) {
+      if (requestId === heatmapRequestId.current) {
+        setHeatmapError(userFacingError(heatmapLoadError));
+      }
+    } finally {
+      if (requestId === heatmapRequestId.current) {
+        setHeatmapLoading(false);
+      }
     }
+  }, []);
 
-    const timer = window.setInterval(() => {
-      setHeatmapHour((currentHour) => (currentHour >= 48 ? 0 : currentHour + 1));
-    }, 600);
-
-    return () => window.clearInterval(timer);
-  }, [playing]);
-
-  const updateField = (field: keyof typeof defaultForm, value: string | number) => {
-    setForm((current) => ({
-      ...current,
-      [field]: value,
-    }));
-  };
-
-  const handleAnalyze = async () => {
+  const handleAnalyze = useCallback(async () => {
+    heatmapRequestId.current += 1;
+    setHeatmapLoading(false);
+    setHeatmapData(null);
+    setHeatmapPayload(null);
     setLoading(true);
+    setProgressMessage('Fetching routes…');
     setError(null);
+    setHeatmapError(null);
+    setSelectedCheckpoint(null);
+    setHoveredCheckpoint(null);
+    const stageTimers = [
+      window.setTimeout(() => setProgressMessage('Sampling checkpoint weather…'), 2200),
+      window.setTimeout(() => setProgressMessage('Scoring route risk…'), 4800),
+    ];
+    const departureTime = new Date(form.departure_time).toISOString();
 
     try {
       const nextRoutes = await analyzeRoutes({
         origin: form.origin,
         destination: form.destination,
-        departure_time: `${form.departure_time}:00Z`,
+        departure_time: departureTime,
         load_lb: Number(form.load_lb),
         interval_miles: Number(form.interval_miles),
       });
-
-      if (nextRoutes.length > 0) {
-        setRoutes(nextRoutes);
-        const activeRouteId = nextRoutes.find((route) => route.recommended)?.route_id ?? nextRoutes[0].route_id;
-        setSelectedRouteId(activeRouteId);
-        return;
+      if (!nextRoutes.length) {
+        throw new Error('The analysis service returned no routes. Please try again.');
       }
-
-      throw new Error('No routes were returned by the analysis service.');
-    } catch (analysisError) {
-      console.error(analysisError);
-      const fallbackRoutes = buildDemoRoutes();
-      setRoutes(fallbackRoutes);
-      setSelectedRouteId('route-1');
-      setError('Routing service unavailable — showing demo route analysis.');
-    } finally {
+      setRoutes(nextRoutes);
+      setSelectedRouteId(nextRoutes.find((route) => route.recommended)?.route_id ?? nextRoutes[0].route_id);
+      setSelectedHeatmapHour(0);
       setLoading(false);
+      setProgressMessage('');
+      await requestHeatmap({
+        route_geometries: nextRoutes.map((route) => route.geometry),
+        start_time: departureTime,
+        load_lb: Number(form.load_lb),
+      });
+    } catch (analysisError) {
+      setError(userFacingError(analysisError));
+    } finally {
+      stageTimers.forEach(window.clearTimeout);
+      setLoading(false);
+      setProgressMessage('');
     }
+  }, [form, requestHeatmap]);
+
+  const retryHeatmap = useCallback(() => {
+    if (heatmapPayload) {
+      void requestHeatmap(heatmapPayload);
+    }
+  }, [heatmapPayload, requestHeatmap]);
+
+  const fillExample = useCallback(() => {
+    const departure = new Date();
+    departure.setDate(departure.getDate() + 1);
+    departure.setHours(8, 0, 0, 0);
+    setForm({
+      origin: 'Chicago, IL',
+      destination: 'Denver, CO',
+      departure_time: toLocalDateTimeInput(departure),
+      load_lb: 45000,
+      interval_miles: 25,
+    });
+    setError(null);
+  }, []);
+
+  const selectRoute = useCallback((routeId: string) => {
+    setSelectedRouteId(routeId);
+    setSelectedCheckpoint(null);
+    setHoveredCheckpoint(null);
+  }, []);
+
+  const selectCheckpoint = useCallback((checkpoint: Checkpoint) => {
+    setSelectedCheckpoint(checkpoint);
+  }, []);
+
+  const routeExplanation = (route: RouteSummary): string => {
+    const metrics = route.metrics;
+    if (!metrics) {
+      return route.recommendation_explanation ?? 'Risk details are not available for this route.';
+    }
+    const recommended = routes.find((item) => item.recommended);
+    if (route.recommended) {
+      return (
+        route.recommendation_explanation ??
+        `This route is recommended after comparing No Travel miles, Severe miles, High miles, distance-weighted average risk (${metrics.average_risk.toFixed(2)}), and duration.`
+      );
+    }
+    const comparisons = routes
+      .filter((otherRoute) => otherRoute.route_id !== route.route_id)
+      .map((otherRoute) => {
+        const otherMetrics = otherRoute.metrics;
+        if (!otherMetrics) {
+          return `${otherRoute.route_id}: metrics unavailable`;
+        }
+        return `${otherRoute.route_id}: ${otherMetrics.no_travel_miles.toFixed(1)} No Travel mi, ${otherMetrics.severe_miles.toFixed(1)} Severe mi, ${otherMetrics.high_miles.toFixed(1)} High mi, average risk ${otherMetrics.average_risk.toFixed(2)}, ${(otherRoute.total_duration_seconds / 3600).toFixed(1)} hr`;
+      })
+      .join('; ');
+    return `This option has ${metrics.no_travel_miles.toFixed(1)} No Travel mi, ${metrics.severe_miles.toFixed(1)} Severe mi, ${metrics.high_miles.toFixed(1)} High mi, distance-weighted average risk ${metrics.average_risk.toFixed(2)}, and ${(route.total_duration_seconds / 3600).toFixed(1)} hr travel time. Comparison: ${comparisons || recommended?.route_id || 'no alternatives available'}.`;
   };
 
   return (
     <div className="app-shell">
       <header className="topbar">
+        <div className="brand-mark" aria-hidden="true">
+          W
+        </div>
         <div>
-          <p className="eyebrow">Route intelligence</p>
-          <h1>Weather-Aware Truck Routing</h1>
+          <h1 className="brand-title">Weather-Aware Truck Routing</h1>
+          <p className="brand-subtitle">Weather intelligence for safer truck journeys</p>
         </div>
       </header>
 
+      {serverState === 'waking' ? (
+        <div className="wake-banner" role="status">
+          <span className="spinner" aria-hidden="true" />
+          The server may be waking up. Its first response can take a little longer.
+        </div>
+      ) : null}
+
       <div className="workspace-grid">
         <aside className="left-panel">
-          <RouteForm values={form} onChange={updateField} onSubmit={handleAnalyze} loading={loading} />
+          <details className="mobile-controls" open>
+            <summary>Trip controls and results</summary>
+            <div className="mobile-controls-content">
+              <section className="panel-section">
+                <h2 className="panel-heading">Plan your trip</h2>
+                <RouteForm
+                  values={form}
+                  onChange={updateField}
+                  onSubmit={handleAnalyze}
+                  onExample={fillExample}
+                  loading={loading}
+                  progressMessage={progressMessage}
+                />
+                {loading ? (
+                  <p className="loading-banner" role="status">
+                    {progressMessage || 'Analyzing your trip…'}
+                  </p>
+                ) : null}
+              </section>
+
+              <section className="panel-section">
+                <div className="section-title-row">
+                  <h2 className="panel-heading">Route comparison</h2>
+                  {routes.length ? <span className="muted-copy">{routes.length} options</span> : null}
+                </div>
+                {loading ? (
+                  <div className="summary-list" aria-label="Loading route options">
+                    <div className="skeleton-card" />
+                    <div className="skeleton-card" />
+                    <div className="skeleton-card" />
+                  </div>
+                ) : routes.length ? (
+                  <div className="summary-list">
+                    {routes.map((route) => (
+                      <RouteSummaryCard
+                        key={route.route_id}
+                        route={route}
+                        isSelected={route.route_id === selectedRouteId}
+                        onSelect={() => selectRoute(route.route_id)}
+                        explanation={routeExplanation(route)}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="empty-state">
+                    Enter your trip details and analyze to compare weather-aware routes.
+                  </div>
+                )}
+              </section>
+
+              <section className="panel-section">
+                <div className="section-title-row">
+                  <h2 className="panel-heading">Weather checkpoints</h2>
+                  {selectedRoute ? <span className="muted-copy">{selectedRoute.route_id}</span> : null}
+                </div>
+                {loading ? (
+                  <div className="checkpoint-list" aria-label="Loading checkpoint forecast">
+                    <div className="skeleton-row" />
+                    <div className="skeleton-row" />
+                    <div className="skeleton-row" />
+                  </div>
+                ) : (
+                  <CheckpointList
+                    route={selectedRoute}
+                    timezone={timezone}
+                    selectedCheckpoint={selectedCheckpoint}
+                    hoveredCheckpoint={hoveredCheckpoint}
+                    onSelect={selectCheckpoint}
+                    onHover={setHoveredCheckpoint}
+                  />
+                )}
+              </section>
+            </div>
+          </details>
         </aside>
 
         <main className="map-panel">
-          <RouteMap
-            routes={routes}
-            selectedRouteId={selectedRouteId}
-            heatmapPoints={heatmapPoints}
-            heatmapHour={heatmapHour}
-            onRouteSelect={setSelectedRouteId}
-            onCheckpointSelect={setSelectedCheckpoint}
-          />
+          <div className="map-heading">
+            <h2>Route map</h2>
+            {selectedRoute ? <span className="muted-copy">Showing {selectedRoute.route_id}</span> : null}
+          </div>
+          <Suspense
+            fallback={
+              <div className="map-shell empty-state" role="status">
+                Loading interactive map…
+              </div>
+            }
+          >
+            <RouteMap
+              routes={routes}
+              selectedRouteId={selectedRouteId}
+              heatmapPoints={heatmapPoints}
+              hoveredCheckpoint={hoveredCheckpoint}
+              onRouteSelect={selectRoute}
+              onCheckpointSelect={selectCheckpoint}
+              onCheckpointHover={setHoveredCheckpoint}
+            />
+          </Suspense>
           <div className="heatmap-wrapper">
             <HeatmapSlider
-              hour={heatmapHour}
-              onHourChange={setHeatmapHour}
-              playing={playing}
-              onTogglePlay={() => setPlaying((current) => !current)}
+              hours={heatmapData?.hours ?? []}
+              loading={heatmapLoading}
+              enabled={Boolean(heatmapData)}
             />
+            {heatmapError ? (
+              <div className="heatmap-error" role="status">
+                <p className="field-error">{heatmapError}</p>
+                <button
+                  type="button"
+                  className="retry-button"
+                  onClick={retryHeatmap}
+                  disabled={heatmapLoading}
+                >
+                  Retry heatmap
+                </button>
+              </div>
+            ) : null}
           </div>
         </main>
       </div>
 
-      {error ? <div className="status-banner">{error}</div> : null}
-
-      <div className="sidebar-grid">
-        <section className="summary-list">
-          {routes.map((route) => (
-            <RouteSummaryCard
-              key={route.route_id}
-              route={route}
-              isSelected={route.route_id === selectedRouteId}
-              onSelect={() => setSelectedRouteId(route.route_id)}
-            />
-          ))}
-        </section>
-
-        <section className="detail-panel">
-          <h2>{selectedRoute?.summary}</h2>
-          <div className="detail-metrics">
-            <div>
-              <span>Distance</span>
-              <strong>{selectedRoute?.total_distance_miles.toFixed(0)} mi</strong>
-            </div>
-            <div>
-              <span>Duration</span>
-              <strong>{((selectedRoute?.total_duration_seconds ?? 0) / 3600).toFixed(1)} hrs</strong>
-            </div>
-            <div>
-              <span>Avg risk</span>
-              <strong>{selectedRoute?.metrics?.average_risk.toFixed(1) ?? '0.0'}</strong>
-            </div>
-          </div>
-
-          {selectedCheckpoint ? (
-            <div className="checkpoint-card">
-              <h3>Selected checkpoint</h3>
-              <ul>
-                <li>ETA: {new Date(selectedCheckpoint.eta_utc).toLocaleString()}</li>
-                <li>Wind: {selectedCheckpoint.wind_mph ?? 'n/a'} mph</li>
-                <li>Rain: {selectedCheckpoint.rain_in_hr ?? 'n/a'} in/hr</li>
-                <li>Snow: {selectedCheckpoint.snow_in_hr ?? 'n/a'} in/hr</li>
-                <li>Risk: {selectedCheckpoint.risk ?? 'Low'}</li>
-              </ul>
-              <p>{selectedCheckpoint.reason ?? 'Weather condition tracked at this checkpoint.'}</p>
-            </div>
-          ) : (
-            <div className="checkpoint-card muted">
-              Click a checkpoint on the map to inspect the ETA, weather conditions, and risk explanation.
-            </div>
-          )}
-
-          <div className="heatmap-panel">
-            <h3>Forecast heatmap</h3>
-            <div className="heatmap-legend">
-              <span>Low</span>
-              <span>Moderate</span>
-              <span>High</span>
-              <span>Severe</span>
-              <span>No Travel</span>
-            </div>
-          </div>
-        </section>
-      </div>
+      {error ? (
+        <div className="status-banner" role="alert">
+          <span>{error}</span>
+          <button
+            type="button"
+            className="retry-button"
+            onClick={() => void handleAnalyze()}
+            disabled={loading}
+          >
+            Retry
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

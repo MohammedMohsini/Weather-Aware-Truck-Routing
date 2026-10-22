@@ -3,7 +3,6 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any
 
 
 @dataclass(frozen=True)
@@ -37,46 +36,6 @@ def interpolate_point(start: tuple[float, float], end: tuple[float, float], rati
         start[0] + (end[0] - start[0]) * ratio,
         start[1] + (end[1] - start[1]) * ratio,
     )
-
-
-def decode_polyline(encoded: str) -> list[tuple[float, float]]:
-    """Decode a Google polyline string into a list of (lat, lng) points."""
-    if not encoded:
-        return []
-
-    index = 0
-    lat = 0
-    lng = 0
-    coordinates: list[tuple[float, float]] = []
-
-    while index < len(encoded):
-        result = 0
-        shift = 0
-        while True:
-            byte = ord(encoded[index]) - 63
-            index += 1
-            result |= (byte & 0x1F) << shift
-            shift += 5
-            if not (byte & 0x20):
-                break
-        delta = (result >> 1) ^ (-(result & 1))
-        lat += delta
-
-        result = 0
-        shift = 0
-        while True:
-            byte = ord(encoded[index]) - 63
-            index += 1
-            result |= (byte & 0x1F) << shift
-            shift += 5
-            if not (byte & 0x20):
-                break
-        delta = (result >> 1) ^ (-(result & 1))
-        lng += delta
-
-        coordinates.append((lat / 1e5, lng / 1e5))
-
-    return coordinates
 
 
 def normalize_datetime(value: str | datetime | None) -> datetime | None:

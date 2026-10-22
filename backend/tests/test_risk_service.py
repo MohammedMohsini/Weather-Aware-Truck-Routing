@@ -1,6 +1,14 @@
 from __future__ import annotations
 
-from services.risk_service import RouteMetrics, calculate_route_metrics, classify_checkpoint, recommend_routes
+import pytest
+
+from services.risk_service import (
+    RouteMetrics,
+    calculate_route_metrics,
+    classify_checkpoint,
+    classify_weather_condition,
+    recommend_routes,
+)
 
 
 def test_wind_threshold_boundaries():
@@ -34,6 +42,40 @@ def test_load_rule_escalations():
     assert classify_checkpoint(index=0, latitude=0.0, longitude=0.0, wind_mph=55.0, rain_in_hr=0.0, snow_in_hr=0.0, load_lb=20000).final_risk == 4
 
 
+def test_condition_threshold_edges_are_lower_bound_inclusive():
+    expected = {
+        'wind': [(24.999, 0), (25, 1), (34.999, 1), (35, 2), (44.999, 2), (45, 3), (54.999, 3), (55, 4)],
+        'rain': [(0.0999, 0), (0.10, 1), (0.2499, 1), (0.25, 2), (0.4999, 2), (0.50, 3), (1.00, 3), (1.0001, 4)],
+        'snow': [(0.4999, 0), (0.5, 1), (0.9999, 1), (1.0, 2), (1.9999, 2), (2.0, 3), (3.0, 3), (3.0001, 4)],
+    }
+
+    for condition, boundaries in expected.items():
+        for value, expected_level in boundaries:
+            level, _ = classify_weather_condition(condition, value)
+            assert level == expected_level, f'{condition}={value} should classify as level {expected_level}'
+
+
+def test_load_rule_exact_weight_and_decimal_wind_edges():
+    def risk(wind_mph: float, load_lb: float) -> int:
+        return classify_checkpoint(
+            index=0,
+            latitude=0.0,
+            longitude=0.0,
+            wind_mph=wind_mph,
+            rain_in_hr=0.0,
+            snow_in_hr=0.0,
+            load_lb=load_lb,
+        ).final_risk
+
+    assert risk(45.0, 30000) == 3
+    assert risk(45.0, 30001) == 4
+    assert risk(54.999, 30001) == 4
+    assert risk(55.0, 30000) == 4
+    assert risk(35.0, 40000) == 2
+    assert risk(35.0, 40001) == 3
+    assert risk(44.999, 40001) == 3
+
+
 def test_calculate_route_metrics_uses_segment_length():
     metrics = calculate_route_metrics(
         route_id='route-1',
@@ -48,7 +90,30 @@ def test_calculate_route_metrics_uses_segment_length():
     )
     assert metrics.miles_by_level['Severe'] == 10.0
     assert metrics.miles_by_level['Moderate'] == 5.0
-    assert metrics.average_risk > 0
+    assert metrics.average_risk == pytest.approx((3 * 10 + 1 * 5) / 15)
+
+
+def test_average_risk_is_distance_weighted_and_changes_for_unequal_segments():
+    def evaluate_route(route_id: str, low_miles: float, moderate_miles: float):
+        return calculate_route_metrics(
+            route_id=route_id,
+            checkpoints=[
+                {'index': 0, 'latitude': 0.0, 'longitude': 0.0, 'segment_length_miles': 0.0, 'wind_mph': 5.0, 'rain_in_hr': 0.0, 'snow_in_hr': 0.0},
+                {'index': 1, 'latitude': 1.0, 'longitude': 0.0, 'segment_length_miles': low_miles, 'wind_mph': 5.0, 'rain_in_hr': 0.0, 'snow_in_hr': 0.0},
+                {'index': 2, 'latitude': 2.0, 'longitude': 0.0, 'segment_length_miles': moderate_miles, 'wind_mph': 30.0, 'rain_in_hr': 0.0, 'snow_in_hr': 0.0},
+            ],
+            total_duration_seconds=3600,
+            total_distance_miles=low_miles + moderate_miles,
+            load_lb=1000,
+        )
+
+    low_risk_weighted = evaluate_route('low-risk-weighted', 90.0, 10.0)
+    moderate_risk_weighted = evaluate_route('moderate-risk-weighted', 10.0, 90.0)
+
+    assert low_risk_weighted.average_risk == pytest.approx(0.1)
+    assert moderate_risk_weighted.average_risk == pytest.approx(0.9)
+    winner, _ = recommend_routes([moderate_risk_weighted, low_risk_weighted])
+    assert winner.route_id == 'low-risk-weighted'
 
 
 def test_recommend_routes_orders_by_priority():
@@ -91,3 +156,31 @@ def test_recommend_routes_orders_by_priority():
     winner, explanation = recommend_routes(routes)
     assert winner.route_id == 'route-b'
     assert 'route-b' in explanation
+
+
+@pytest.mark.parametrize(
+    ('first', 'second', 'expected_winner'),
+    [
+        ((0, 1, 8, 4.0, 5000), (0, 2, 0, 0.0, 1000), 'first'),
+        ((0, 2, 1, 4.0, 5000), (0, 2, 2, 0.0, 1000), 'first'),
+        ((0, 2, 2, 1.0, 5000), (0, 2, 2, 2.0, 1000), 'first'),
+        ((0, 2, 2, 2.0, 1000), (0, 2, 2, 2.0, 2000), 'first'),
+    ],
+)
+def test_recommendation_uses_each_lexicographic_tie_breaker(first, second, expected_winner):
+    def route(route_id, values):
+        no_travel, severe, high, average, duration = values
+        return RouteMetrics(
+            route_id=route_id,
+            no_travel_miles=no_travel,
+            severe_miles=severe,
+            high_miles=high,
+            average_risk=average,
+            total_duration_seconds=duration,
+            total_distance_miles=100,
+            miles_by_level={'Low': 0, 'Moderate': 0, 'High': high, 'Severe': severe, 'No Travel': no_travel},
+            checkpoint_risks=[],
+        )
+
+    winner, _ = recommend_routes([route('first', first), route('second', second)])
+    assert winner.route_id == expected_winner

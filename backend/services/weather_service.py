@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from collections import defaultdict
+import hashlib
+from datetime import datetime, timezone
 
-import httpx
 from django.core.cache import cache
 
-from .providers.base import ProviderError, WeatherPoint
+from .provider_factory import get_weather_provider
+from .providers.base import WeatherPoint
 
 
 def parse_iso_utc(value: str) -> datetime:
@@ -28,61 +30,59 @@ def get_weather_for_points(
     if not points:
         return []
 
-    normalized_start = start_time if isinstance(start_time, str) else start_time.isoformat()
-    cache_key = f'weather:{len(points)}:{normalized_start}:{hours}:{hash(tuple(sorted(points)))}'
+    start_datetime = parse_iso_utc(start_time if isinstance(start_time, str) else start_time.isoformat())
+    normalized_start = start_datetime.isoformat()
+    rounded_points = [(round(lat, 4), round(lon, 4)) for lat, lon in points]
+    coordinates_hash = hashlib.sha256(repr(rounded_points).encode('utf-8')).hexdigest()[:20]
+    cache_key = f'weather:{coordinates_hash}:{normalized_start}:{hours}'
     cached = cache.get(cache_key)
     if cached is not None:
         return [WeatherPoint(**item) for item in cached]
 
-    coordinates = [(lat, lon) for lat, lon in points]
-    params = {
-        'latitude': [lat for lat, _ in coordinates],
-        'longitude': [lon for _, lon in coordinates],
-        'hourly': ['wind_speed_10m', 'rain', 'snowfall'],
-        'wind_speed_unit': 'mph',
-        'precipitation_unit': 'inch',
-        'timezone': 'UTC',
-        'start_hour': normalized_start,
-        'end_hour': (parse_iso_utc(normalized_start) + timedelta(hours=hours)).isoformat(),
-    }
-
-    response = httpx.get('https://api.open-meteo.com/v1/forecast', params=params, timeout=20.0)
-    if response.status_code >= 400:
-        raise ProviderError('Weather forecast request failed', status_code=response.status_code, details={'body': response.text})
-
-    payload = response.json()
-    hourly = payload.get('hourly', {})
-    time_points = hourly.get('time', [])
-    wind_values = hourly.get('wind_speed_10m', [])
-    rain_values = hourly.get('rain', [])
-    snow_values = hourly.get('snowfall', [])
-
-    if not time_points:
-        raise ProviderError('Open-Meteo did not return hourly weather data.', status_code=502)
-
-    results: list[WeatherPoint] = []
-    for idx, (lat, lon) in enumerate(coordinates):
-        for i, timestamp in enumerate(time_points):
-            results.append(
-                WeatherPoint(
-                    latitude=lat,
-                    longitude=lon,
-                    timestamp=timestamp,
-                    wind_mph=float(wind_values[i]) if i < len(wind_values) else 0.0,
-                    rain_in_hr=float(rain_values[i]) if i < len(rain_values) else 0.0,
-                    snow_in_hr=float(snow_values[i]) if i < len(snow_values) else 0.0,
-                )
-            )
-
+    results = get_weather_provider().weather(
+        rounded_points,
+        time_start=normalized_start,
+        hours=hours,
+    )
     cache.set(cache_key, [item.__dict__ for item in results], timeout=60 * 10)
     return results
 
 
-def weather_for_checkpoint(weather_points: list[WeatherPoint], eta_utc: datetime) -> WeatherPoint | None:
-    """Return the nearest available weather sample for a checkpoint ETA."""
-    if not weather_points:
+def index_weather_by_location(
+    weather_points: list[WeatherPoint],
+) -> dict[tuple[float, float], list[WeatherPoint]]:
+    """Group forecast samples by rounded coordinate to keep lookup bounded."""
+    grouped: dict[tuple[float, float], list[WeatherPoint]] = defaultdict(list)
+    for point in weather_points:
+        grouped[(round(point.latitude, 4), round(point.longitude, 4))].append(point)
+    for samples in grouped.values():
+        samples.sort(key=lambda item: parse_iso_utc(item.timestamp))
+    return dict(grouped)
+
+
+def weather_for_checkpoint(
+    weather_points: list[WeatherPoint] | dict[tuple[float, float], list[WeatherPoint]],
+    eta_utc: datetime,
+    *,
+    latitude: float,
+    longitude: float,
+) -> WeatherPoint | None:
+    """Return nearest-time weather for this coordinate, or None outside forecast coverage."""
+    if isinstance(weather_points, dict):
+        matching_location = weather_points.get((round(latitude, 4), round(longitude, 4)), [])
+    else:
+        matching_location = [
+            item for item in weather_points
+            if round(item.latitude, 4) == round(latitude, 4)
+            and round(item.longitude, 4) == round(longitude, 4)
+        ]
+    if not matching_location:
         return None
 
     target = eta_utc.astimezone(timezone.utc)
-    nearest = min(weather_points, key=lambda item: abs(parse_iso_utc(item.timestamp) - target))
+    first_time = min(parse_iso_utc(item.timestamp) for item in matching_location)
+    last_time = max(parse_iso_utc(item.timestamp) for item in matching_location)
+    if target < first_time or target > last_time:
+        return None
+    nearest = min(matching_location, key=lambda item: abs(parse_iso_utc(item.timestamp) - target))
     return nearest

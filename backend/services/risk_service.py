@@ -115,10 +115,10 @@ def classify_checkpoint(
     if wind_mph >= 55:
         final_risk = 4
         final_reason = 'Wind >= 55 mph means no travel for any load.'
-    elif 45 <= wind_mph <= 54 and load_lb > 30000:
+    elif 45 <= wind_mph < 55 and load_lb > 30000:
         final_risk = 4
         final_reason = 'Wind 45-54 mph with load over 30,000 lb means no travel.'
-    elif 35 <= wind_mph <= 44 and load_lb > 40000:
+    elif 35 <= wind_mph < 45 and load_lb > 40000:
         final_risk = 3
         final_reason = 'Wind 35-44 mph with load over 40,000 lb escalates to Severe.'
 
@@ -150,10 +150,11 @@ def calculate_route_metrics(
     total_distance_miles: float,
     load_lb: float,
 ) -> RouteMetrics:
-    """Aggregate all route metrics for recommendation and UI rendering."""
+    """Aggregate distance-weighted risk metrics for recommendation and UI rendering."""
     miles_by_level = {name: 0.0 for name in ['Low', 'Moderate', 'High', 'Severe', 'No Travel']}
     checkpoint_risks: list[CheckpointRisk] = []
-    risk_values: list[int] = []
+    weighted_risk_total = 0.0
+    total_segment_miles = 0.0
 
     for checkpoint in checkpoints:
         risk = classify_checkpoint(
@@ -166,13 +167,14 @@ def calculate_route_metrics(
             load_lb=float(load_lb),
         )
         checkpoint_risks.append(risk)
-        risk_values.append(risk.final_risk)
 
         segment_length = float(checkpoint.get('segment_length_miles', 0.0))
         if segment_length > 0:
             miles_by_level[RISK_LEVEL_NAMES[risk.final_risk]] += segment_length
+            weighted_risk_total += risk.final_risk * segment_length
+            total_segment_miles += segment_length
 
-    average_risk = sum(risk_values) / len(risk_values) if risk_values else 0.0
+    average_risk = weighted_risk_total / total_segment_miles if total_segment_miles else 0.0
     return RouteMetrics(
         route_id=route_id,
         no_travel_miles=miles_by_level['No Travel'],
@@ -217,8 +219,3 @@ def recommend_routes(route_evaluations: list[RouteMetrics]) -> tuple[RouteMetric
         f"Comparison: {comparison}"
     )
     return best, explanation
-
-
-summarize_route_metrics = calculate_route_metrics
-rank_routes = recommend_routes
-classify_risk = classify_checkpoint

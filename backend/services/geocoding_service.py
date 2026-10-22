@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import hashlib
+
 from django.core.cache import cache
 
-from .providers.base import GeocodeResult, ProviderError
+from .providers.base import GeocodeResult
 from .provider_factory import get_geocoding_provider
 
 
@@ -12,7 +14,8 @@ def geocode_address(query: str, *, limit: int = 5) -> list[GeocodeResult]:
     if not cleaned:
         raise ValueError('Location query is required.')
 
-    cache_key = f'geocode:{cleaned.lower()}:{limit}'
+    query_hash = hashlib.sha256(cleaned.casefold().encode('utf-8')).hexdigest()[:20]
+    cache_key = f'geocode:{query_hash}:{limit}'
     cached = cache.get(cache_key)
     if cached is not None:
         return [GeocodeResult(**item) for item in cached]

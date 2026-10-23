@@ -79,6 +79,7 @@ def build_checkpoints(
     interval_miles: int | float,
     departure_time: str | datetime | None = None,
     total_duration_seconds: int | float | None = None,
+    total_distance_miles: float | None = None,
 ) -> list[Checkpoint]:
     """Create route checkpoints at the requested interval and the route endpoints.
 
@@ -98,8 +99,16 @@ def build_checkpoints(
     for i in range(1, len(normalized_route)):
         cumulative.append(cumulative[-1] + haversine_miles(normalized_route[i - 1], normalized_route[i]))
 
-    total_distance_miles = cumulative[-1]
-    interval = float(interval_miles) if interval_miles and interval_miles > 0 else max(total_distance_miles, 1.0)
+    geometry_distance_miles = cumulative[-1]
+    if total_distance_miles is not None and total_distance_miles > 0 and geometry_distance_miles > 0:
+        distance_scale = total_distance_miles / geometry_distance_miles
+        cumulative = [distance * distance_scale for distance in cumulative]
+    total_route_distance_miles = cumulative[-1]
+    interval = (
+        float(interval_miles)
+        if interval_miles and interval_miles > 0
+        else max(total_route_distance_miles, 1.0)
+    )
 
     checkpoints: list[Checkpoint] = []
     current_checkpoint_index = 0
@@ -107,7 +116,12 @@ def build_checkpoints(
 
     def add_checkpoint_at(distance: float, point: tuple[float, float], segment_length: float) -> None:
         nonlocal current_checkpoint_index, previous_distance
-        eta = calculate_eta_for_distance(departure_time, total_duration_seconds, distance, total_distance_miles)
+        eta = calculate_eta_for_distance(
+            departure_time,
+            total_duration_seconds,
+            distance,
+            total_route_distance_miles,
+        )
         checkpoints.append(
             Checkpoint(
                 index=current_checkpoint_index,
@@ -123,9 +137,9 @@ def build_checkpoints(
 
     add_checkpoint_at(0.0, normalized_route[0], 0.0)
 
-    if total_distance_miles > 0:
+    if total_route_distance_miles > 0:
         target = interval
-        while target < total_distance_miles:
+        while target < total_route_distance_miles:
             segment_index = 0
             while segment_index < len(normalized_route) - 1:
                 start_dist = cumulative[segment_index]
@@ -139,7 +153,7 @@ def build_checkpoints(
                 segment_index += 1
             target += interval
 
-    end_distance = total_distance_miles
+    end_distance = total_route_distance_miles
     end_point = normalized_route[-1]
     end_segment = end_distance - previous_distance if checkpoints else end_distance
     if not (checkpoints and checkpoints[-1].distance_from_start_miles == end_distance):

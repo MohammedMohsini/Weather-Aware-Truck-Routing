@@ -54,6 +54,7 @@ flowchart LR
 ## Assumptions
 - OpenStreetMap/Nominatim is used for geocoding. OSRM is the default driving router; OpenRouteService is an optional keyed alternative.
 - Route ETAs are interpolated proportionally by distance because the route provider response supplies total duration rather than per-step arrival times.
+- Checkpoint spacing and risk-mile totals use the routing provider's route distance. Geometry-derived distances are scaled proportionally when the route polyline's calculated length differs slightly from the provider's road distance.
 - Weather forecast sampling uses Open-Meteo hourly forecasts and selects the nearest forecast hour to each ETA (not interpolation).
 - The app uses UTC internally and converts to local time only in the UI presentation layer.
 - Average risk is the distance-weighted mean of final checkpoint risk levels: sum each segment's numeric risk level multiplied by its segment miles, divided by total segment miles (Low=0 through No Travel=4). Miles by risk level are distance totals from the checkpoint segments.

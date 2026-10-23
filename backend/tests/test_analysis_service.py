@@ -52,7 +52,8 @@ def test_analyze_routes_returns_weather_risk_metrics_and_recommendation():
     recommended = next(route for route in result['routes'] if route['recommended'])
     assert recommended['metrics']['total_distance_miles'] == 500
     assert recommended['metrics']['total_duration_seconds'] == 7200
-    assert sum(recommended['metrics']['miles_by_level'].values()) > 0
+    assert sum(recommended['metrics']['miles_by_level'].values()) == 500
+    assert recommended['checkpoints'][-1]['distance_from_start_miles'] == 500
     checkpoint = recommended['checkpoints'][1]
     assert checkpoint['wind_mph'] == 20.0
     assert checkpoint['rain_in_hr'] == 0.12

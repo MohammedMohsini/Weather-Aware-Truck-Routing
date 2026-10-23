@@ -33,6 +33,7 @@ def analyze_routes(
             interval_miles=interval_miles,
             departure_time=departure_time,
             total_duration_seconds=route.total_duration_seconds,
+            total_distance_miles=route.total_distance_miles,
         )
         for route in routes
     ]

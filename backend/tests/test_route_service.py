@@ -64,6 +64,22 @@ def test_checkpoint_generation_respects_supported_intervals_and_endpoints():
         assert abs(sum(checkpoint.segment_length_miles for checkpoint in checkpoints) - distances[-1]) < 1e-8
 
 
+def test_checkpoints_use_provider_distance_for_spacing_and_segment_totals():
+    route = [(0.0, 0.0), (0.0, 3.0)]
+    checkpoints = build_checkpoints(
+        route,
+        interval_miles=25,
+        total_distance_miles=250,
+        departure_time='2025-01-01T00:00:00Z',
+        total_duration_seconds=3600,
+    )
+
+    distances = [checkpoint.distance_from_start_miles for checkpoint in checkpoints]
+    assert distances == [0, 25, 50, 75, 100, 125, 150, 175, 200, 225, 250]
+    assert sum(checkpoint.segment_length_miles for checkpoint in checkpoints) == 250
+    assert checkpoints[-1].distance_from_start_miles == 250
+
+
 def test_route_distance_miles_sums_segments():
     route = [(0.0, 0.0), (0.01, 0.0), (0.02, 0.0)]
     total = route_distance_miles(route)

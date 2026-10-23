@@ -76,6 +76,22 @@ def test_load_rule_exact_weight_and_decimal_wind_edges():
     assert risk(44.999, 40001) == 3
 
 
+def test_load_escalation_never_reduces_more_severe_weather_risk():
+    result = classify_checkpoint(
+        index=0,
+        latitude=0.0,
+        longitude=0.0,
+        wind_mph=35.0,
+        rain_in_hr=1.01,
+        snow_in_hr=0.0,
+        load_lb=40001,
+    )
+
+    assert result.base_risk == 4
+    assert result.final_risk == 4
+    assert result.reason == 'rain condition is No Travel.'
+
+
 def test_calculate_route_metrics_uses_segment_length():
     metrics = calculate_route_metrics(
         route_id='route-1',

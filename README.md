@@ -229,6 +229,7 @@ Response contains 49 ordered hour records (0 through 48 inclusive) and corridor 
 
 ## Risk rules
 The service applies the following lower-bound-inclusive thresholds.
+Checkpoint base risk is the maximum of the three condition levels. Load rules only escalate that level and never reduce a more severe weather classification.
 
 ### Wind speed (mph)
 | Level | Threshold |

@@ -119,8 +119,9 @@ def classify_checkpoint(
         final_risk = 4
         final_reason = 'Wind 45-54 mph with load over 30,000 lb means no travel.'
     elif 35 <= wind_mph < 45 and load_lb > 40000:
-        final_risk = 3
-        final_reason = 'Wind 35-44 mph with load over 40,000 lb escalates to Severe.'
+        if final_risk < 3:
+            final_risk = 3
+            final_reason = 'Wind 35-44 mph with load over 40,000 lb escalates to Severe.'
 
     return CheckpointRisk(
         index=index,

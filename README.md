@@ -337,7 +337,7 @@ Render supplies `PORT` automatically. Set this Vercel Production environment var
 |---|---|
 | `VITE_API_BASE_URL` | `https://weather-aware-truck-routing-api-3sba.onrender.com` |
 
-The Render CORS preflight allows the deployed Vercel origin. The Render service has been manually deployed from the current `main` commit; verify real route analysis after deployment. The values in `render.yaml` match the production hosts.
+The Render CORS preflight allows the deployed Vercel origin. A live Chicago-to-Denver analysis was verified at 20,000 lb and 45,000 lb; both returned exactly three scored routes, and their checkpoint risk miles summed to each provider-reported route distance. Forecast winds stayed below the load-rule thresholds for this departure, so the two load weights correctly produced the same risk metrics. The corresponding heatmap returned 49 hourly snapshots across 293 corridor points. The values in `render.yaml` match the production hosts.
 
 ## Loom walkthrough outline
 1. Start with a 20-second overview: truck route comparison, weather risk, and recommended path.

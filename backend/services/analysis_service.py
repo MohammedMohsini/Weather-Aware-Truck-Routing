@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from services.providers.base import ProviderError, RouteResult
+from services.providers.base import RouteResult
 from services.risk_service import (
     RISK_LEVEL_NAMES,
     calculate_route_metrics,

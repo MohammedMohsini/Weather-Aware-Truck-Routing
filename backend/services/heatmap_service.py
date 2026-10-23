@@ -4,7 +4,7 @@ import math
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from services.risk_service import RISK_LEVEL_NAMES, classify_checkpoint
+from services.risk_service import classify_checkpoint
 from services.route_service import build_checkpoints, route_distance_miles
 from services.weather_service import (
     get_weather_for_points,

@@ -238,7 +238,7 @@ function parseRoutes(payload: unknown): RouteSummary[] {
     )
   ) {
     throw new Error(
-      'The backend is returning unscored fallback routes. Deploy the latest backend and verify its ORS_API_KEY; these routes cannot be safely analyzed.',
+      'The backend is returning unscored fallback routes. Deploy the latest backend with a working routing provider; these routes cannot be safely analyzed.',
     );
   }
   const routes = payload.routes.map(parseRoute);

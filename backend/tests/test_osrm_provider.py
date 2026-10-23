@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from services.providers.base import ProviderError
-from services.providers.osrm import METERS_PER_MILE, OsrmProvider
+from services.providers.osrm import OsrmProvider
 
 
 def _osrm_response():
